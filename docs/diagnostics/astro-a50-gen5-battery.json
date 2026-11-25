@@ -1,0 +1,42 @@
+{
+  "model": "Logitech G ASTRO A50 (Gen 5)",
+  "vid": "046d",
+  "pid": "0b1c",
+  "interface": 8,
+  "usage_page": "ff32",
+  "usage": "0074",
+  "passive": {
+    "timeout_seconds": 10.0,
+    "audio_before": {
+      "pro-output-0": "SUSPENDED",
+      "pro-output-1": "RUNNING"
+    },
+    "audio_after": {
+      "pro-output-0": "SUSPENDED",
+      "pro-output-1": "RUNNING"
+    },
+    "input_reports": []
+  },
+  "battery_query": {
+    "timeout_seconds": 2.0,
+    "audio_before": {
+      "pro-output-0": "SUSPENDED",
+      "pro-output-1": "SUSPENDED"
+    },
+    "audio_after": {
+      "pro-output-0": "SUSPENDED",
+      "pro-output-1": "SUSPENDED"
+    },
+    "output_report": {
+      "length_bytes": 64,
+      "hex": "02 0c 03 00 06 0c 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+    },
+    "input_reports": [
+      {
+        "length_bytes": 64,
+        "hex": "02 0c 06 00 06 0c 5d 5f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "elapsed_ms": 1.97
+      }
+    ]
+  }
+}
