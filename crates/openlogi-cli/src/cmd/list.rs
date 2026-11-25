@@ -258,7 +258,11 @@ impl fmt::Display for StandaloneDisplay<'_> {
             device.address.vendor_id,
             device.address.product_id,
             device.driver_id,
-        )
+        )?;
+        if let Some(battery) = &device.battery {
+            write!(f, " {}", BatteryDisplay(battery))?;
+        }
+        Ok(())
     }
 }
 
@@ -472,6 +476,7 @@ mod format_tests {
             light_capabilities: None,
             driver_id: "logitech-g600".into(),
             registry_model_id: None,
+            battery: None,
         };
 
         assert_eq!(
@@ -603,6 +608,38 @@ mod format_tests {
         assert_eq!(
             out,
             "     model_ids=[b042,0000,0000] ext=02 serial=— unit_id=00010203 transports=—"
+        );
+    }
+
+    #[test]
+    fn standalone_headset_prints_a_measured_percentage() {
+        let device = openlogi_core::device::StandaloneDevice {
+            address: openlogi_core::device::RawDeviceAddress {
+                vendor_id: 0x046d,
+                product_id: 0x0b1c,
+                usage_page: 0xff32,
+                usage_id: 0x0074,
+                identity: "id:astro-test".into(),
+            },
+            display_name: "ASTRO A50 Gen 5".into(),
+            manufacturer: None,
+            serial_number: None,
+            unit_id: [0; 4],
+            kind: openlogi_core::device::DeviceKind::Headset,
+            online: true,
+            capabilities: None,
+            light_capabilities: None,
+            driver_id: "logitech-gaming-headset".into(),
+            registry_model_id: None,
+            battery: Some(BatteryInfo {
+                percentage: Some(93),
+                level: BatteryLevel::Unknown,
+                status: BatteryStatus::Unknown,
+            }),
+        };
+        assert_eq!(
+            super::StandaloneDisplay(&device).to_string(),
+            "● ASTRO A50 Gen 5 (headset, vid=046d pid=0b1c, driver=logitech-gaming-headset) battery=93% unknown (unknown)"
         );
     }
 

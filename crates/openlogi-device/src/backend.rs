@@ -139,6 +139,13 @@ pub trait RawWriter: Send + Sync {
     async fn write_output_report(&mut self, report: &[u8]) -> Result<(), BackendError>;
 }
 
+/// A duplex vendor-report connection, separate from HID++ framing.
+#[async_trait]
+pub trait RawChannel: RawWriter {
+    /// Read one input report, preserving its report ID and actual length.
+    async fn read_input_report(&mut self, buffer: &mut [u8]) -> Result<usize, BackendError>;
+}
+
 /// The HID stack beneath OpenLogi's HID++ layer.
 ///
 /// One implementation per host HID API. Everything above it — enumeration
@@ -172,6 +179,16 @@ pub trait HidBackend: Send + Sync {
 
     /// Open `node` for raw output reports.
     async fn open_raw_writer(&self, node: &NodeInfo) -> Result<Box<dyn RawWriter>, BackendError>;
+
+    /// Open a duplex vendor-report connection. Output-only backends may reject it.
+    async fn open_raw_channel(
+        &self,
+        _node: &NodeInfo,
+    ) -> Result<Box<dyn RawChannel>, BackendError> {
+        Err(BackendError::Backend(
+            "duplex raw HID is not supported by this backend".into(),
+        ))
+    }
 
     /// Subscribe to node connect/disconnect events.
     fn watch(&self) -> Result<HotplugStream, BackendError>;

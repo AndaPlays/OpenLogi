@@ -7,13 +7,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
-use async_hid::{AsyncHidWrite as _, Device, DeviceWriter};
+use async_hid::{AsyncHidRead as _, AsyncHidWrite as _, Device, DeviceReader, DeviceWriter};
 use hidpp::async_trait;
 use hidpp::channel::HidppChannel;
 
 use openlogi_device::DeviceIoGate;
 use openlogi_device::backend::{
-    BackendError, HidBackend, HotplugStream, NodeId, NodeInfo, RawWriter,
+    BackendError, HidBackend, HotplugStream, NodeId, NodeInfo, RawChannel, RawWriter,
 };
 
 use crate::recording::{
@@ -231,8 +231,58 @@ impl HidBackend for NativeBackend {
         }
     }
 
+    async fn open_raw_channel(&self, node: &NodeInfo) -> Result<Box<dyn RawChannel>, BackendError> {
+        // The recording schema currently represents output-only raw connections.
+        // Never silently omit duplex traffic from a diagnostic capture.
+        if self.recording.is_some() {
+            return Err(BackendError::Backend(
+                "duplex raw HID recording is not supported".into(),
+            ));
+        }
+        self.device_io.ensure_allowed()?;
+        let (reader, writer) = self
+            .handle(node)?
+            .open()
+            .await
+            .map_err(super::backend_error)?;
+        self.device_io.ensure_allowed()?;
+        Ok(Box::new(NativeRawChannel {
+            reader,
+            writer: NativeRawWriter {
+                writer,
+                device_io: self.device_io.clone(),
+            },
+        }))
+    }
+
     fn watch(&self) -> Result<HotplugStream, BackendError> {
         Ok(Box::new(watch_nodes()?))
+    }
+}
+
+struct NativeRawChannel {
+    reader: DeviceReader,
+    writer: NativeRawWriter,
+}
+
+#[async_trait]
+impl RawWriter for NativeRawChannel {
+    async fn write_output_report(&mut self, report: &[u8]) -> Result<(), BackendError> {
+        self.writer.write_output_report(report).await
+    }
+}
+
+#[async_trait]
+impl RawChannel for NativeRawChannel {
+    async fn read_input_report(&mut self, buffer: &mut [u8]) -> Result<usize, BackendError> {
+        self.writer.device_io.ensure_allowed()?;
+        let length = self
+            .reader
+            .read_input_report(buffer)
+            .await
+            .map_err(super::backend_error)?;
+        self.writer.device_io.ensure_allowed()?;
+        Ok(length)
     }
 }
 

@@ -607,7 +607,7 @@ fn append_standalone(
             light_capabilities: device.light_capabilities,
             slot: openlogi_core::hid::DIRECT_DEVICE_INDEX,
             presence: Presence::listed(device.online),
-            battery: None,
+            battery: device.battery.clone(),
             settings_revision: 0,
             stale_pairings: Vec::new(),
         });

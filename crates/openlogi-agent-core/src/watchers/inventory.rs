@@ -121,7 +121,13 @@ impl RawNodeLedger {
     /// again is replaced by its fresh descriptor and its miss count resets.
     fn reconcile(&mut self, live: Vec<StandaloneDevice>) -> Vec<StandaloneDevice> {
         let live_keys: HashSet<String> = live.iter().map(raw_node_key).collect();
-        for device in live {
+        for mut device in live {
+            if device.battery.is_none() {
+                device.battery = self
+                    .entries
+                    .get(&raw_node_key(&device))
+                    .and_then(|entry| entry.device.battery.clone());
+            }
             self.entries
                 .insert(raw_node_key(&device), RawNodeEntry { device, misses: 0 });
         }
@@ -709,7 +715,7 @@ mod tests {
     use openlogi_core::device::{DeviceKind, RawDeviceAddress, StandaloneDevice};
     use openlogi_hid::{BackendError, InventoryError};
 
-    use super::{INITIAL_FAILURE_LIMIT, InventoryEvent, WatchState};
+    use super::{INITIAL_FAILURE_LIMIT, InventoryEvent, RawNodeLedger, WatchState};
 
     /// A transport-level enumerate failure — what the watcher's `Err` arm now
     /// sees (a partial per-node read is replayed by the hid ledger as `Ok`).
@@ -778,6 +784,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn raw_battery_failure_retains_last_reading_and_later_success_replaces_it() {
+        use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus};
+        let mut ledger = RawNodeLedger::default();
+        let mut device = raw_light("id:astro-battery-test");
+        device.battery = Some(BatteryInfo {
+            percentage: Some(93),
+            level: BatteryLevel::Unknown,
+            status: BatteryStatus::Unknown,
+        });
+        ledger.reconcile(vec![device.clone()]);
+        device.battery = None;
+        let stale = ledger.reconcile(vec![device.clone()]);
+        assert_eq!(stale[0].battery.as_ref().unwrap().percentage, Some(93));
+        assert!(stale[0].online);
+        device.battery = Some(BatteryInfo {
+            percentage: Some(92),
+            level: BatteryLevel::Unknown,
+            status: BatteryStatus::Unknown,
+        });
+        let fresh = ledger.reconcile(vec![device]);
+        assert_eq!(fresh[0].battery.as_ref().unwrap().percentage, Some(92));
+        let detached = ledger.reconcile(Vec::new());
+        assert!(!detached[0].online);
+    }
+
     fn raw_light(identity: &str) -> StandaloneDevice {
         StandaloneDevice {
             address: RawDeviceAddress {
@@ -797,6 +829,7 @@ mod tests {
             light_capabilities: None,
             driver_id: "litra".into(),
             registry_model_id: None,
+            battery: None,
         }
     }
 

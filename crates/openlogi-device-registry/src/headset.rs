@@ -1,12 +1,8 @@
 //! Logitech gaming-headset raw-HID identities.
 //!
-//! These headsets don't speak the eQuad HID++ receiver protocol mice and
-//! keyboards use. Their dongle exposes a proprietary vendor collection
-//! instead, and no publicly documented reverse-engineering of that protocol
-//! is known yet (checked against the `HeadsetControl` project's Logitech
-//! drivers, none of which match this family's usage page). So, like Litra,
-//! these are surfaced as standalone raw-HID devices for identity only: no
-//! battery, mute, or sidetone control until the wire protocol is worked out.
+//! These headsets expose vendor collections outside the receiver HID++ protocol.
+//! Recognition alone does not imply control support. The A50 Gen 5 has a measured
+//! battery query; other controls and the G735 protocol remain unsupported.
 
 use crate::LOGITECH_VENDOR_ID;
 
@@ -29,7 +25,7 @@ pub struct GamingHeadsetDescriptor {
     pub name: &'static str,
     /// Model ID the openlogi-org/assets index lists for this headset, used to
     /// resolve its device image.
-    pub registry_model_id: &'static str,
+    pub registry_model_id: Option<&'static str>,
 }
 
 impl GamingHeadsetDescriptor {
@@ -46,13 +42,30 @@ impl GamingHeadsetDescriptor {
             usage_page,
             usage_id,
             name,
-            registry_model_id,
+            registry_model_id: Some(registry_model_id),
         }
     }
 }
 
+/// Whether this is the measured ASTRO A50 Gen 5 vendor collection, not A50 X.
+#[must_use]
+pub fn matches_astro_a50_gen5(vendor: u16, product: u16, page: u16, usage: u16) -> bool {
+    find_gaming_headset(vendor, product, page, usage)
+        .is_some_and(|device| *device == ASTRO_A50_GEN5)
+}
+
+const ASTRO_A50_GEN5: GamingHeadsetDescriptor = GamingHeadsetDescriptor {
+    vendor_id: LOGITECH_VENDOR_ID,
+    product_id: 0x0b1c,
+    usage_page: 0xff32,
+    usage_id: 0x0074,
+    name: "ASTRO A50 Gen 5",
+    registry_model_id: None,
+};
+
 /// All standalone gaming-headset raw-HID identities OpenLogi recognizes.
 pub const GAMING_HEADSETS: &[GamingHeadsetDescriptor] = &[
+    ASTRO_A50_GEN5,
     // G735 LIGHTSPEED. Its dongle (046D:0AD8) exposes vendor collections on
     // 0xff00/0x0001 and 0xff03/0x0001..0x0003; 0xff00/0x0001 is used here as
     // the stable identity node, matching the precedent of the older G533/G930

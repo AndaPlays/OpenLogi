@@ -401,6 +401,7 @@ fn standalone_registry_identity_is_preserved_without_hidpp_model_info() {
         light_capabilities: None,
         driver_id: "litra".into(),
         registry_model_id: Some("8c901".into()),
+        battery: None,
     };
     let list = build_device_list(
         &[],
@@ -418,6 +419,45 @@ fn standalone_registry_identity_is_preserved_without_hidpp_model_info() {
     // key, transport-free — not the route-embedded `raw:…` runtime key.
     assert_eq!(list[0].config_key, "serial:beam-1");
     assert!(list[0].asset.is_none());
+}
+
+#[test]
+fn standalone_headset_battery_reaches_the_existing_device_record() {
+    let device = StandaloneDevice {
+        address: RawDeviceAddress {
+            vendor_id: 0x046d,
+            product_id: 0x0b1c,
+            usage_page: 0xff32,
+            usage_id: 0x0074,
+            identity: "id:astro-test".into(),
+        },
+        display_name: "ASTRO A50 Gen 5".into(),
+        manufacturer: None,
+        serial_number: None,
+        unit_id: [0; 4],
+        kind: DeviceKind::Headset,
+        online: true,
+        capabilities: None,
+        light_capabilities: None,
+        driver_id: "logitech-gaming-headset".into(),
+        registry_model_id: None,
+        battery: Some(openlogi_core::device::BatteryInfo {
+            percentage: Some(93),
+            level: openlogi_core::device::BatteryLevel::Unknown,
+            status: openlogi_core::device::BatteryStatus::Unknown,
+        }),
+    };
+    let list = build_device_list(
+        &[],
+        std::slice::from_ref(&device),
+        &AssetResolver::new(),
+        &Config::default(),
+        &[],
+    );
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].battery, device.battery);
+    assert_eq!(list[0].kind, DeviceKind::Headset);
+    assert!(list[0].capabilities.is_none());
 }
 
 #[test]

@@ -16,16 +16,39 @@ use crate::write::litra_capabilities;
 /// The returned descriptors are intentionally separate from receiver
 /// inventories. A raw device has no HID++ pairing slot and must be routed by
 /// its full HID identity tuple.
+/// Recognized A50 Gen 5 nodes receive one bounded battery query; a failed
+/// query leaves the identity visible with an unknown reading.
 pub async fn enumerate_standalone(
     backend: &dyn HidBackend,
 ) -> Result<Vec<StandaloneDevice>, InventoryError> {
     let devices = backend.enumerate().await?;
-    let devices: Vec<_> = devices
-        .into_iter()
-        .filter_map(|device| standalone_device(&device))
-        .collect();
-    validate_no_ambiguous_nodes(&devices)?;
-    Ok(devices)
+    let mut standalone: Vec<_> = devices.iter().filter_map(standalone_device).collect();
+    validate_no_ambiguous_nodes(&standalone)?;
+    for (device, node) in standalone.iter_mut().filter_map(|device| {
+        devices
+            .iter()
+            .find(|node| {
+                node.identity() == device.address.identity
+                    && node.vendor_id == device.address.vendor_id
+                    && node.product_id == device.address.product_id
+                    && node.usage_page == device.address.usage_page
+                    && node.usage_id == device.address.usage_id
+            })
+            .map(|node| (device, node))
+    }) {
+        if openlogi_device_registry::headset::matches_astro_a50_gen5(
+            node.vendor_id,
+            node.product_id,
+            node.usage_page,
+            node.usage_id,
+        ) {
+            match crate::astro_a50::query_battery(backend, node).await {
+                Ok(battery) => device.battery = Some(battery),
+                Err(error) => tracing::debug!(%error, "A50 battery unavailable"),
+            }
+        }
+    }
+    Ok(standalone)
 }
 
 /// Classifies one enumerated HID node against every standalone driver family
@@ -55,6 +78,7 @@ pub(super) fn standalone_device(device: &crate::backend::NodeInfo) -> Option<Sta
             light_capabilities: Some(litra_capabilities(descriptor.model)),
             driver_id: descriptor.driver_id.to_owned(),
             registry_model_id: Some(descriptor.registry_model_id.to_owned()),
+            battery: None,
         });
     }
 
@@ -81,7 +105,8 @@ pub(super) fn standalone_device(device: &crate::backend::NodeInfo) -> Option<Sta
             capabilities: None,
             light_capabilities: None,
             driver_id: GAMING_HEADSET_DRIVER_ID.to_owned(),
-            registry_model_id: Some(descriptor.registry_model_id.to_owned()),
+            registry_model_id: descriptor.registry_model_id.map(str::to_owned),
+            battery: None,
         });
     }
 
@@ -111,6 +136,7 @@ pub(super) fn standalone_device(device: &crate::backend::NodeInfo) -> Option<Sta
             light_capabilities: None,
             driver_id: G600_DRIVER_ID.to_owned(),
             registry_model_id: None,
+            battery: None,
         });
     }
 
@@ -220,6 +246,7 @@ mod tests {
             light_capabilities: None,
             driver_id: "litra".into(),
             registry_model_id: None,
+            battery: None,
         }
     }
 

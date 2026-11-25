@@ -20,6 +20,7 @@ mod channel;
 mod device_io;
 mod keypad_vendor;
 
+pub mod astro_a50;
 pub mod backend;
 pub mod backlight;
 pub mod host_lock;

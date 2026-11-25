@@ -386,7 +386,7 @@ pub enum BatteryStatus {
     Unknown,
 }
 
-/// Battery snapshot for one paired device, as last polled over HID++.
+/// Latest battery snapshot from a device's protocol driver.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BatteryInfo {
     /// Reported charge percentage (`0..=100`), or `None` when the reading
@@ -752,6 +752,10 @@ pub struct StandaloneDevice {
     /// append-only GUI↔agent bincode wire format.
     #[serde(default)]
     pub registry_model_id: Option<String>,
+    /// Latest successful standalone battery query, if this driver supports it.
+    /// Appended to the IPC wire format; unknown readings are never zero percent.
+    #[serde(default)]
+    pub battery: Option<BatteryInfo>,
 }
 
 impl StandaloneDevice {
