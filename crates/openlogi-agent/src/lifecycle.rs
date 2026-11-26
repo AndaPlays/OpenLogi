@@ -534,6 +534,12 @@ impl Running {
                     refresh.request_settings_confirmation();
                 }
             }
+            InventoryEvent::HeadsetVolumeChanged { address, step } => {
+                self.orchestrator
+                    .lock()
+                    .await
+                    .update_headset_volume(&address, step);
+            }
             InventoryEvent::Unavailable => {
                 self.orchestrator.lock().await.mark_inventory_unavailable();
             }

@@ -46,6 +46,7 @@ fn glow(identity: &str, serial: Option<&str>, online: bool) -> StandaloneDevice 
         registry_model_id: Some("8c900".into()),
         battery: None,
         chat_mix: None,
+        headset_volume: None,
     }
 }
 

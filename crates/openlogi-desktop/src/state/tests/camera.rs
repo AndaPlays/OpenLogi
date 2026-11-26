@@ -186,6 +186,7 @@ fn camera_automation_preserves_manual_power_and_clears_transient_override() {
         registry_model_id: Some("8c900".into()),
         battery: None,
         chat_mix: None,
+        headset_volume: None,
     };
     let (commands, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let mut state = AppState::new(Sources {
@@ -252,6 +253,7 @@ fn enabling_camera_automation_queues_effective_camera_power() {
         registry_model_id: Some("8c900".into()),
         battery: None,
         chat_mix: None,
+        headset_volume: None,
     };
     let (commands, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let mut state = AppState::new(Sources {

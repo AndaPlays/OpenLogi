@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
-use openlogi_core::device::{LightState, StandaloneDevice};
+use openlogi_core::device::LightState;
 use openlogi_core::hid::{LightCommand, PairingError, WriteError};
 use openlogi_hid::backend::{HidBackend, HotplugStream};
 use openlogi_hid::inventory::persist::ProbeCacheStore;
+use openlogi_hid::inventory::standalone::StandaloneScan;
 use openlogi_hid::pairing::ReceiverIdentityCache;
 use openlogi_hid::{
     ChannelPool, DeviceIoGate, DeviceRoute, Enumerator, FileProbeCacheStore, InventoryError,
@@ -101,10 +102,8 @@ impl HardwareContext {
         openlogi_hid::inventory::hotplug::watch_hotplug(&*self.backend)
     }
 
-    pub(crate) async fn enumerate_standalone(
-        &self,
-    ) -> Result<Vec<StandaloneDevice>, InventoryError> {
-        openlogi_hid::inventory::standalone::enumerate_standalone(&*self.backend).await
+    pub(crate) async fn enumerate_standalone(&self) -> Result<StandaloneScan, InventoryError> {
+        openlogi_hid::inventory::standalone::enumerate_standalone_with_watches(&*self.backend).await
     }
 
     pub(crate) async fn run_pairing(

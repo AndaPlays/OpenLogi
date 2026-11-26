@@ -69,6 +69,7 @@ async fn failed_confirmation_and_repairs_keep_delayed_work_until_recovery() {
         state: super::WatchState::default(),
         hotplug: None,
         hid_events,
+        volume_watches: tokio::task::JoinSet::new(),
         schedule: Schedule::new(start),
         wake_detector: WakeDetector::new(SystemTime::now(), start),
         device_io,
@@ -165,6 +166,7 @@ async fn replay_inventory_and_authoritative_read_share_one_injected_backend() {
         InventoryEvent::Unavailable
         | InventoryEvent::SystemWake
         | InventoryEvent::DeviceWake
+        | InventoryEvent::HeadsetVolumeChanged { .. }
         | InventoryEvent::BacklightChanged { .. }
         | InventoryEvent::LockKeyChanged(_) => {
             panic!("initial replay reconciliation must publish a snapshot")
@@ -397,6 +399,7 @@ async fn published_within(
                     InventoryEvent::Snapshot { .. }
                     | InventoryEvent::SystemWake
                     | InventoryEvent::DeviceWake
+                    | InventoryEvent::HeadsetVolumeChanged { .. }
                     | InventoryEvent::BacklightChanged { .. }
                     | InventoryEvent::LockKeyChanged(_),
                 ) => {}
@@ -550,6 +553,7 @@ async fn reopening_a_retired_channel_requests_device_wake_before_its_snapshot() 
         state: super::WatchState::default(),
         hotplug: None,
         hid_events,
+        volume_watches: tokio::task::JoinSet::new(),
         schedule: Schedule::new(start),
         wake_detector: WakeDetector::new(SystemTime::now(), start),
         device_io,
@@ -659,6 +663,7 @@ async fn a_capture_dead_channel_report_wakes_the_worker_and_replaces_the_channel
         state: super::WatchState::default(),
         hotplug: None,
         hid_events,
+        volume_watches: tokio::task::JoinSet::new(),
         schedule: Schedule::new(start),
         wake_detector: WakeDetector::new(SystemTime::now(), start),
         device_io,

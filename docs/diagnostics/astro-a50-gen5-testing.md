@@ -1,24 +1,24 @@
-# Testing ASTRO A50 Gen 5 battery integration
+# Testing ASTRO A50 Gen 5 readouts
 
 The implementation recognizes only the measured `046d:0b1c`, usage
 `ff32:0074` vendor collection. This is **A50 Gen 5**, not A50 X. Audio
 continues to use the system USB Audio driver; OpenLogi changes no audio routes.
 
-Standalone enumeration sends separate 64-byte battery and ChatMix requests.
-Each query has its own two-second deadline covering open, write and response. The agent refreshes it during its
-normal inventory reconciliation, including the recovery scan (approximately
-29 seconds without another event). There is no separate high-frequency poller.
-Malformed or unrelated reports are ignored within that deadline. A failure
-keeps the headset visible; the agent retains its last successful reading.
-Direct CLI enumeration has no previous reading to retain.
+Standalone enumeration sends separate 64-byte battery, ChatMix and hardware
+volume requests. Each query has a two-second deadline covering open, write and
+response. The agent refreshes the readings during normal inventory
+reconciliation, including the recovery scan (approximately 29 seconds without
+another event). Malformed or unrelated reports are ignored within the deadline.
+A failed query leaves the headset visible and does not block the other readings.
+The agent retains the last successful battery reading. ChatMix and volume are
+shown when their current queries succeed.
 
 Only battery percentage is interpreted. Charging status and the coarse battery
 level remain unknown. The adjacent raw byte and dock/charging byte are decoded
 but are not used to infer charging, headset connectivity or an empty battery.
 No EQ, sidetone, volume, lighting, noise-gate or Dolby writes are implemented.
 The native diagnostic recorder does not yet capture duplex vendor reports;
-recording mode leaves this device's battery unavailable rather than silently
-omitting its traffic from a recording.
+recording mode leaves the vendor reports unavailable.
 
 ## Windows comparison
 
@@ -75,7 +75,7 @@ cargo build --locked -p openlogi -p openlogi-agent -p openlogi-desktop
 ```
 
 Use the same `OPENLOGI_PROFILE=dev` and XDG environment in all terminals.
-Agent and clients now use IPC version 48; do not reuse an older debug agent.
+Agent and clients now use IPC version 49; do not reuse an older debug agent.
 Start the real development agent, then the CLI and GUI:
 
 ```sh
@@ -111,6 +111,88 @@ the three positions.
 After the test, both apps were routed to A50 Game and the test agent was
 stopped. The tested archive's SHA-256 was
 `27e75e820b122492f909570b6782235aeed7e8b87d28945e1285db929ac12d0e`.
+
+### Hardware volume on Arch Linux
+
+On 2026-11-26 a direct HID probe sampled the volume wheel while the
+PipeWire Game sink stayed at 100% (0.00 dB, both channels) and reported
+`RUNNING` before and after all five probes, including at the silent hardware
+minimum. Two upward wheel steps moved the reading from 17 to 19. At the
+physical stops the headset reported 0 and 21.
+
+The measured 64-byte GET starts with `02 0c 03 00 08 0c` and has 58 zero
+bytes after that prefix. The 64-byte replies start with
+`02 0c 06 00 08 0c`, then contain the three bytes below followed by
+55 zero bytes. Byte offsets include the report ID at offset zero.
+
+| Wheel observation | Bytes 6–8 (hex) | Step (byte 8) | Reply time |
+| --- | --- | ---: | ---: |
+| Baseline | `19 00 11` | 17 | 1.93 ms |
+| Two steps up | `1c 00 13` | 19 | 1.78 ms |
+| Maximum stop | `1f 00 15` | 21 | 1.41 ms |
+| Silent minimum stop | `00 00 00` | 0 | 1.95 ms |
+| Turned up from minimum | `11 00 0c` | 12 | 1.51 ms |
+
+The reader uses byte 8 as the discrete headset step on the 0–21 scale,
+independent of the OS volume. Byte 6 has no validated interpretation.
+The passive observation in this run ended before the wheel was moved.
+The spontaneous reports were captured separately below.
+
+For a live OpenLogi retest, compare the **Headset volume** row in the device
+details with `headset-volume=…/21` in `openlogi list` after a refresh.
+Use a comfortable listening level. Compare the PipeWire Game sink volume
+before and after turning the physical wheel. The Arch observations above
+came from the direct probe, before this readback was integrated into OpenLogi.
+
+### IPC 49 volume hardware test on Arch Linux
+
+The Linux x86_64 test build read the volume of a physical ASTRO A50 Gen 5
+through the running OpenLogi agent. Two downward steps on the headset wheel
+changed the reading from `15/21` to `13/21`. Both the CLI and the native GUI
+showed `13/21`. Battery (67%) and ChatMix (`6/12`) stayed visible.
+
+The PipeWire A50 Game sink stayed at 100% (0.00 dB) on both channels.
+The ALSA Game output was active in all 483 samples over roughly 97 seconds,
+and the hardware playback pointer advanced between samples. This records
+playback progress during polling. The temporary test processes were stopped
+afterward.
+
+The tested archive's SHA-256 was
+`510e92d0096163148ef5cbb69b9e6319157d9f0dec17af2790836d175c7f4c06`.
+
+### Spontaneous volume reports on Arch Linux
+
+A 15-second passive read on interface 8 captured five 64-byte input
+reports. No active HID query or OpenLogi agent was running. The tester
+heard the volume change while operating the wheel.
+
+| Seconds since capture start | Hardware step (byte 8) |
+| ---: | ---: |
+| 1.2054 | 12 |
+| 1.7884 | 11 |
+| 4.7904 | 12 |
+| 5.3734 | 13 |
+| 14.8744 | 12 |
+
+Each report begins `02 0c 06 00 08 00`. Byte 5 is `0x00` in these reports
+and was `0x0c` in the measured GET responses. The observed spontaneous
+frames use the same volume command and step offset as those responses.
+The [byte-exact capture](astro-a50-gen5-volume-wheel-arch.json) is used
+by the decoder test.
+
+The agent keeps the volume GET channel open between scans and publishes
+matching handle-`0x00` wheel events to clients immediately. It closes the
+reader before replacing the baseline in a scan or suspending device I/O.
+The GET remains the initial and recovery reading. A failed listener is
+reopened on the next successful scan.
+
+To verify the live path on Arch, leave the GUI open on the device details
+and turn the wheel at a comfortable listening level. Look for the volume
+row to follow each step before the next inventory scan. To verify recovery,
+reconnect the base and check that the step appears again and updates when
+you turn the wheel. The spontaneous reports were confirmed with a direct
+passive probe. The live agent path is covered by offline replay and still
+needs this hardware test.
 
 ## Offline evidence
 

@@ -113,6 +113,8 @@ pub struct DeviceRecord {
     pub battery: Option<BatteryInfo>,
     /// Latest hardware Game/Voice balance.
     pub chat_mix: Option<u8>,
+    /// Latest headset-side volume step.
+    pub headset_volume: Option<u8>,
     /// The agent's [`PairedDevice::settings_revision`]: a move between two
     /// snapshots of one route means the device changed a setting itself.
     /// `0` for a record with no HID++ device behind it.
@@ -359,6 +361,7 @@ pub(super) fn build_device_list(
                 presence: Presence::listed(paired.online),
                 battery: paired.battery.clone(),
                 chat_mix: None,
+                headset_volume: None,
                 settings_revision: paired.settings_revision,
                 stale_pairings: Vec::new(),
             });
@@ -530,6 +533,7 @@ fn camera_record(camera: &Camera, resolver: &AssetResolver) -> DeviceRecord {
         presence: Presence::Listed(Link::Online),
         battery: None,
         chat_mix: None,
+        headset_volume: None,
         settings_revision: 0,
         stale_pairings: Vec::new(),
     }
@@ -613,6 +617,7 @@ fn append_standalone(
             presence: Presence::listed(device.online),
             battery: device.battery.clone(),
             chat_mix: device.chat_mix,
+            headset_volume: device.headset_volume,
             settings_revision: 0,
             stale_pairings: Vec::new(),
         });
@@ -817,6 +822,7 @@ fn offline_record(
         presence: Presence::Listed(Link::Offline),
         battery: None,
         chat_mix: None,
+        headset_volume: None,
         settings_revision: 0,
         stale_pairings: Vec::new(),
     }
@@ -886,6 +892,7 @@ pub(super) fn adopt_transient_record(known: &DeviceRecord, live: DeviceRecord) -
         presence: live.presence,
         battery: live.battery.or_else(|| known.battery.clone()),
         chat_mix: live.chat_mix,
+        headset_volume: live.headset_volume,
         settings_revision: live.settings_revision,
         stale_pairings: live.stale_pairings,
     }
@@ -991,6 +998,7 @@ fn demo_keyboard() -> DeviceRecord {
         presence: Presence::Listed(Link::Online),
         battery: None,
         chat_mix: None,
+        headset_volume: None,
         settings_revision: 0,
         stale_pairings: Vec::new(),
     }

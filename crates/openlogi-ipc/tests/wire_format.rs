@@ -119,7 +119,7 @@ fn representative_smartshift_status() -> SmartShiftStatus {
 /// unreleased version and leave this pin alone (`crates/openlogi-ipc/AGENTS.md`).
 #[test]
 fn protocol_version_is_pinned() {
-    assert_eq!(PROTOCOL_VERSION, 48);
+    assert_eq!(PROTOCOL_VERSION, 49);
 }
 
 #[test]
@@ -1277,17 +1277,18 @@ fn standalone_light_dtos_commands_and_errors() {
         registry_model_id: Some("8c900".into()),
         battery: None,
         chat_mix: None,
+        headset_volume: None,
     };
 
     assert_wire(
         &standalone,
-        "fb6d04fb00c9fb43fffb02020d73657269616c3a676c6f772d310a4c6974726120476c6f7701044c6f67690106676c6f772d31000000000d010001010114fa010101fb8c0afb641964020000056c69747261010538633930300000",
+        "fb6d04fb00c9fb43fffb02020d73657269616c3a676c6f772d310a4c6974726120476c6f7701044c6f67690106676c6f772d31000000000d010001010114fa010101fb8c0afb641964020000056c6974726101053863393030000000",
     );
     let mut legacy = standalone.clone();
     legacy.registry_model_id = None;
     assert_wire(
         &legacy,
-        "fb6d04fb00c9fb43fffb02020d73657269616c3a676c6f772d310a4c6974726120476c6f7701044c6f67690106676c6f772d31000000000d010001010114fa010101fb8c0afb641964020000056c69747261000000",
+        "fb6d04fb00c9fb43fffb02020d73657269616c3a676c6f772d310a4c6974726120476c6f7701044c6f67690106676c6f772d31000000000d010001010114fa010101fb8c0afb641964020000056c6974726100000000",
     );
     legacy.battery = Some(openlogi_core::device::BatteryInfo {
         percentage: Some(93),
@@ -1295,9 +1296,10 @@ fn standalone_light_dtos_commands_and_errors() {
         status: openlogi_core::device::BatteryStatus::Unknown,
     });
     legacy.chat_mix = Some(6);
+    legacy.headset_volume = Some(17);
     assert_wire(
         &legacy,
-        "fb6d04fb00c9fb43fffb02020d73657269616c3a676c6f772d310a4c6974726120476c6f7701044c6f67690106676c6f772d31000000000d010001010114fa010101fb8c0afb641964020000056c697472610001015d04050106",
+        "fb6d04fb00c9fb43fffb02020d73657269616c3a676c6f772d310a4c6974726120476c6f7701044c6f67690106676c6f772d31000000000d010001010114fa010101fb8c0afb641964020000056c697472610001015d040501060111",
     );
     assert_wire(&capabilities, "010114fa010101fb8c0afb641964020000");
     assert_wire(&brightness, "14fa0101");

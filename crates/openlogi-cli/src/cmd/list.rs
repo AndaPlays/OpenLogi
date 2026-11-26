@@ -266,6 +266,10 @@ impl fmt::Display for StandaloneDisplay<'_> {
             let game_end = openlogi_core::device::CHAT_MIX_GAME_END;
             write!(f, " chatmix={step}/{game_end} (Voice → Game)")?;
         }
+        if let Some(step) = device.headset_volume.filter(|_| device.online) {
+            let maximum = openlogi_core::device::A50_VOLUME_MAX;
+            write!(f, " headset-volume={step}/{maximum}")?;
+        }
         Ok(())
     }
 }
@@ -482,6 +486,7 @@ mod format_tests {
             registry_model_id: None,
             battery: None,
             chat_mix: None,
+            headset_volume: None,
         };
 
         assert_eq!(
@@ -642,10 +647,11 @@ mod format_tests {
                 status: BatteryStatus::Unknown,
             }),
             chat_mix: Some(6),
+            headset_volume: Some(17),
         };
         assert_eq!(
             super::StandaloneDisplay(&device).to_string(),
-            "● ASTRO A50 Gen 5 (headset, vid=046d pid=0b1c, driver=logitech-gaming-headset) battery=93% unknown (unknown) chatmix=6/12 (Voice → Game)"
+            "● ASTRO A50 Gen 5 (headset, vid=046d pid=0b1c, driver=logitech-gaming-headset) battery=93% unknown (unknown) chatmix=6/12 (Voice → Game) headset-volume=17/21"
         );
     }
 

@@ -122,6 +122,60 @@ fn settings_changes_only_publish_for_online_inventory_routes() {
 }
 
 #[test]
+fn headset_wheel_updates_reach_observers_without_reconciling_inventory() {
+    let observable = Arc::new(ObservableState::new("test".into()));
+    let mut orch = Orchestrator::new(Config::default(), Arc::clone(&observable));
+    let mut headset = StandaloneDevice {
+        address: RawDeviceAddress {
+            vendor_id: 0x046d,
+            product_id: 0x0b1c,
+            usage_page: 0xff32,
+            usage_id: 0x0074,
+            identity: "id:astro-volume-test".into(),
+        },
+        display_name: "ASTRO A50 Gen 5".into(),
+        manufacturer: None,
+        serial_number: None,
+        unit_id: [0; 4],
+        kind: DeviceKind::Headset,
+        online: true,
+        capabilities: None,
+        light_capabilities: None,
+        driver_id: "logitech-gaming-headset".into(),
+        registry_model_id: None,
+        battery: Some(openlogi_core::device::BatteryInfo {
+            percentage: Some(67),
+            level: openlogi_core::device::BatteryLevel::Unknown,
+            status: openlogi_core::device::BatteryStatus::Unknown,
+        }),
+        chat_mix: Some(6),
+        headset_volume: Some(17),
+    };
+    let address = headset.address.clone();
+    orch.refresh_inventory(&[], std::slice::from_ref(&headset), false);
+    let mut subscription = observable.subscribe();
+
+    for step in [12, 11, 12, 13, 12] {
+        orch.update_headset_volume(&address, step);
+        assert!(subscription.has_changed().unwrap());
+        headset.headset_volume = Some(step);
+        assert_eq!(
+            subscription.borrow_and_update().snapshot.standalone,
+            [headset.clone()]
+        );
+    }
+
+    orch.update_headset_volume(&address, 12);
+    assert!(!subscription.has_changed().unwrap());
+    headset.online = false;
+    orch.refresh_inventory(&[], std::slice::from_ref(&headset), false);
+    let _ = subscription.borrow_and_update();
+    orch.update_headset_volume(&address, 9);
+    assert!(!subscription.has_changed().unwrap());
+    assert_eq!(observable.snapshot().standalone, [headset]);
+}
+
+#[test]
 fn equal_runtime_projection_does_not_wake_managers() {
     let mut orch = orchestrator(Config::default());
     orch.devices = vec![dev("a", 1, true)];

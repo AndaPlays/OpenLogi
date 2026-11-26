@@ -382,6 +382,7 @@ fn a_light_row_reports_what_the_light_read_back() {
         registry_model_id: None,
         battery: None,
         chat_mix: None,
+        headset_volume: None,
     };
     let brightness = LightValueRange::new(20, 250, 1, LightValueUnit::Lumens).expect("range");
     let state = |on| LightState {
@@ -1138,6 +1139,7 @@ mod controls {
             registry_model_id: None,
             battery: None,
             chat_mix: None,
+            headset_volume: None,
         }
     }
 

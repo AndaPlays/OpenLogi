@@ -312,6 +312,7 @@ mod tests {
                 presence: Presence::Listed(Link::Online),
                 battery: None,
                 chat_mix: None,
+                headset_volume: None,
                 settings_revision: 0,
                 stale_pairings: Vec::new(),
             };

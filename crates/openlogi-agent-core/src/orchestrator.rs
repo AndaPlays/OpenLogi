@@ -2231,6 +2231,30 @@ impl Orchestrator {
         }
     }
 
+    /// Update one online headset's hardware volume and wake IPC observers.
+    ///
+    /// The device remains in the same inventory with its other readings and
+    /// settings intact. This does not run the inventory reconciliation path.
+    pub fn update_headset_volume(
+        &mut self,
+        address: &openlogi_core::device::RawDeviceAddress,
+        step: u8,
+    ) {
+        let InventoryState::Ready { standalone, .. } = &mut self.inventory else {
+            return;
+        };
+        let Some(device) = standalone
+            .iter_mut()
+            .find(|device| device.online && device.address == *address)
+        else {
+            return;
+        };
+        if device.headset_volume != Some(step) {
+            device.headset_volume = Some(step);
+            self.publish_inventory();
+        }
+    }
+
     /// Republish the device facts the GUI observes, reading the one field that
     /// holds them so this can never disagree with the `inventory` /
     /// `standalone` / `inventory_health` accessors. Called by every mutator

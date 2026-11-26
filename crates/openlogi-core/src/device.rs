@@ -759,10 +759,16 @@ pub struct StandaloneDevice {
     /// Hardware Game/Voice balance, with zero at the Voice end.
     #[serde(default)]
     pub chat_mix: Option<u8>,
+    /// Hardware volume step reported by the headset.
+    #[serde(default)]
+    pub headset_volume: Option<u8>,
 }
 
 /// ChatMix step at the Game endpoint. The Voice endpoint is zero.
 pub const CHAT_MIX_GAME_END: u8 = 12;
+
+/// Highest hardware volume step on the ASTRO A50 Gen 5.
+pub const A50_VOLUME_MAX: u8 = 21;
 
 impl StandaloneDevice {
     /// The route that reaches this device.

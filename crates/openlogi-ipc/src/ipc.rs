@@ -196,7 +196,8 @@ pub use succession::Identity;
 ///      button or an Actions Ring slot.
 /// v47: `StandaloneDevice::battery` appended for vendor-protocol headset readings.
 /// v48: `StandaloneDevice::chat_mix` appended for hardware Game/Voice balance.
-pub const PROTOCOL_VERSION: u32 = 48;
+/// v49: `StandaloneDevice::headset_volume` appended for hardware volume readback.
+pub const PROTOCOL_VERSION: u32 = 49;
 
 /// Environment variable through which the agent hands a supervised helper the
 /// run token it will serve, so the helper knows which agent it belongs to

@@ -287,6 +287,7 @@ mod tests {
             registry_model_id: None,
             battery: None,
             chat_mix: None,
+            headset_volume: None,
         }
     }
 

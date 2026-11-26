@@ -1150,6 +1150,7 @@ fn record(kind: DeviceKind, capabilities: Option<Capabilities>) -> DeviceRecord 
         presence: Presence::Listed(Link::Online),
         battery: None,
         chat_mix: None,
+        headset_volume: None,
         settings_revision: 0,
         stale_pairings: Vec::new(),
     }

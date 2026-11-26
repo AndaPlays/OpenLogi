@@ -5,9 +5,11 @@
 
 use std::time::Duration;
 
-use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, CHAT_MIX_GAME_END};
+use openlogi_core::device::{
+    A50_VOLUME_MAX, BatteryInfo, BatteryLevel, BatteryStatus, CHAT_MIX_GAME_END,
+};
 
-use crate::backend::{BackendError, HidBackend, NodeInfo};
+use crate::backend::{BackendError, HidBackend, NodeInfo, RawChannel};
 
 /// Query the A50 Gen 5 battery once, with a deadline covering open, write and read.
 ///
@@ -30,12 +32,64 @@ pub async fn query_chat_mix(backend: &dyn HidBackend, node: &NodeInfo) -> Result
     query(backend, node, 0x0a, decode_chat_mix_report).await
 }
 
+const VOLUME_COMMAND: u8 = 0x08;
+const GET_HANDLE: u8 = 0x0c;
+const WHEEL_HANDLE: u8 = 0x00;
+const QUERY_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// An open A50 vendor channel that has completed its initial volume GET.
+///
+/// This owns the same channel as the GET, so events that follow the response
+/// are available to the reader without a second open.
+pub struct VolumeWatch(Box<dyn RawChannel>);
+
+impl VolumeWatch {
+    /// Wait for a spontaneous volume report. GET replies and unrelated input
+    /// are ignored.
+    pub async fn next_step(&mut self) -> Result<u8, BackendError> {
+        read_matching(&mut *self.0, |report| {
+            volume_with_handle(report, WHEEL_HANDLE)
+        })
+        .await
+    }
+}
+
+/// Read the current hardware step and keep the channel open for wheel updates.
+pub async fn open_volume_watch(
+    backend: &dyn HidBackend,
+    node: &NodeInfo,
+) -> Result<(u8, VolumeWatch), BackendError> {
+    let (step, channel) = query_with_channel(backend, node, VOLUME_COMMAND, |report| {
+        volume_with_handle(report, GET_HANDLE)
+    })
+    .await?;
+    Ok((step, VolumeWatch(channel)))
+}
+
+fn volume_with_handle(report: &[u8], handle: u8) -> Result<u8, VolumeReportError> {
+    if report.get(5).copied() != Some(handle) {
+        return Err(VolumeReportError::Frame);
+    }
+    decode_volume_report(report)
+}
+
 async fn query<T, E>(
     backend: &dyn HidBackend,
     node: &NodeInfo,
     command: u8,
     decode: impl Fn(&[u8]) -> Result<T, E>,
 ) -> Result<T, BackendError> {
+    query_with_channel(backend, node, command, decode)
+        .await
+        .map(|(reading, _)| reading)
+}
+
+async fn query_with_channel<T, E>(
+    backend: &dyn HidBackend,
+    node: &NodeInfo,
+    command: u8,
+    decode: impl Fn(&[u8]) -> Result<T, E>,
+) -> Result<(T, Box<dyn RawChannel>), BackendError> {
     if !openlogi_device_registry::headset::matches_astro_a50_gen5(
         node.vendor_id,
         node.product_id,
@@ -46,26 +100,37 @@ async fn query<T, E>(
             "not the A50 Gen 5 vendor collection".into(),
         ));
     }
-    tokio::time::timeout(Duration::from_secs(2), async {
+    tokio::time::timeout(QUERY_TIMEOUT, async {
         let mut channel = backend.open_raw_channel(node).await?;
         let mut request = [0; 64];
-        request[..6].copy_from_slice(&[0x02, 0x0c, 0x03, 0, command, 0x0c]);
+        request[..6].copy_from_slice(&[0x02, 0x0c, 0x03, 0, command, GET_HANDLE]);
         channel.write_output_report(&request).await?;
-        loop {
-            let mut report = [0; 65];
-            let length = channel.read_input_report(&mut report).await?;
-            let Some(bytes) = report.get(..length) else {
-                return Err(BackendError::Backend("invalid raw HID report size".into()));
-            };
-            if let Ok(reading) = decode(bytes) {
-                return Ok(reading);
-            }
-            // Also bounds a backend that continuously returns unrelated reports.
-            tokio::task::yield_now().await;
-        }
+        let reading = read_matching(&mut *channel, decode).await?;
+        Ok((reading, channel))
     })
     .await
     .map_err(|_| BackendError::Backend("A50 Gen 5 query timed out".into()))?
+}
+
+async fn read_matching<T, E>(
+    channel: &mut dyn RawChannel,
+    decode: impl Fn(&[u8]) -> Result<T, E>,
+) -> Result<T, BackendError> {
+    loop {
+        let mut report = [0; 65];
+        let length = channel.read_input_report(&mut report).await?;
+        if length == 0 {
+            return Err(BackendError::Disconnected);
+        }
+        let Some(bytes) = report.get(..length) else {
+            return Err(BackendError::Backend("invalid raw HID report size".into()));
+        };
+        if let Ok(reading) = decode(bytes) {
+            return Ok(reading);
+        }
+        // Give timeouts and suspension a chance even on a busy channel.
+        tokio::task::yield_now().await;
+    }
 }
 
 /// A validated battery reply from the A50 Gen 5 vendor interface.
@@ -168,11 +233,71 @@ pub fn decode_chat_mix_report(report: &[u8]) -> Result<u8, ChatMixReportError> {
     }
 }
 
+/// Why an input report cannot be accepted as an A50 Gen 5 volume reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum VolumeReportError {
+    /// Invalid report size, header or declared payload length.
+    #[error("not a complete A50 Gen 5 volume reply")]
+    Frame,
+    /// The reported step is above the hardware maximum.
+    #[error("invalid A50 Gen 5 volume step {0}")]
+    Step(u8),
+}
+
+/// Decode the measured hardware volume step from byte 8 of a volume reply.
+pub fn decode_volume_report(report: &[u8]) -> Result<u8, VolumeReportError> {
+    if report.len() != 64 {
+        return Err(VolumeReportError::Frame);
+    }
+    let [0x02, 0x0c, 0x06, 0x00, 0x08, _, _, _, step, ..] = report else {
+        return Err(VolumeReportError::Frame);
+    };
+    if *step > A50_VOLUME_MAX {
+        return Err(VolumeReportError::Step(*step));
+    }
+    Ok(*step)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        BatteryReportError, ChatMixReportError, decode_battery_report, decode_chat_mix_report,
+        BatteryReportError, ChatMixReportError, VolumeReportError, decode_battery_report,
+        decode_chat_mix_report, decode_volume_report,
     };
+
+    #[test]
+    fn measured_arch_volume_reports_decode_the_device_step() {
+        // Captured header and raw/step pairs, followed by 55 zero bytes.
+        for (raw, wire_step, expected) in [
+            (0x19, 0x11, 17),
+            (0x1c, 0x13, 19),
+            (0x1f, 0x15, 21),
+            (0x00, 0x00, 0),
+            (0x11, 0x0c, 12),
+        ] {
+            let mut report = [0; 64];
+            report[..9].copy_from_slice(&[0x02, 0x0c, 0x06, 0, 0x08, 0x0c, raw, 0, wire_step]);
+            assert_eq!(decode_volume_report(&report), Ok(expected));
+        }
+    }
+
+    #[test]
+    fn rejects_out_of_range_and_other_volume_frames() {
+        let mut report = [0; 64];
+        report[..9].copy_from_slice(&[0x02, 0x0c, 0x06, 0, 0x08, 0x0c, 0x1f, 0, 22]);
+        assert_eq!(
+            decode_volume_report(&report),
+            Err(VolumeReportError::Step(22))
+        );
+        assert_eq!(
+            decode_volume_report(&report[..63]),
+            Err(VolumeReportError::Frame)
+        );
+        assert_eq!(
+            decode_volume_report(&measured_report()),
+            Err(VolumeReportError::Frame)
+        );
+    }
 
     #[test]
     fn decodes_measured_arch_chat_mix_positions() {

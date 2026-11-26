@@ -12,11 +12,13 @@ use std::future::pending;
 use std::time::{Instant, SystemTime};
 
 use futures_lite::StreamExt as _;
-use openlogi_core::device::{DeviceInventory, StandaloneDevice};
+use openlogi_core::device::{DeviceInventory, RawDeviceAddress, StandaloneDevice};
 use openlogi_hid::inventory::events::{BacklightUpdate, HidppEventSource, LockKeyUpdate};
-use openlogi_hid::{ChannelRegistry, DeviceIoGate};
+use openlogi_hid::inventory::standalone::VolumeWatch;
+use openlogi_hid::{BackendError, ChannelRegistry, DeviceIoGate};
 use openlogi_ipc::LockKeyChange;
 use tokio::sync::{mpsc, watch};
+use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 
 use schedule::{
@@ -70,6 +72,13 @@ pub enum InventoryEvent {
     /// set/route/online state looks unchanged across the gap, so the agent
     /// re-applies volatile settings on the next snapshot (#189).
     SystemWake,
+    /// An online A50 reported a hardware volume wheel change.
+    HeadsetVolumeChanged {
+        /// Raw device that reported the change.
+        address: RawDeviceAddress,
+        /// Device volume step.
+        step: u8,
+    },
     /// A keyboard firmware event carrying the latest backlight level.
     BacklightChanged {
         device_index: u8,
@@ -166,13 +175,27 @@ impl RawNodeLedger {
             .collect()
     }
 
+    fn update_headset_volume(&mut self, address: &RawDeviceAddress, step: u8) -> bool {
+        let Some(entry) = self.entries.get_mut(&raw_address_key(address)) else {
+            return false;
+        };
+        if !entry.device.online || entry.device.headset_volume == Some(step) {
+            return false;
+        }
+        entry.device.headset_volume = Some(step);
+        true
+    }
+
     fn has_pending_misses(&self) -> bool {
         self.entries.values().any(|entry| entry.misses > 0)
     }
 }
 
 fn raw_node_key(device: &StandaloneDevice) -> String {
-    let address = &device.address;
+    raw_address_key(&device.address)
+}
+
+fn raw_address_key(address: &RawDeviceAddress) -> String {
     format!(
         "{:04x}:{:04x}:{:04x}:{:04x}:{}",
         address.vendor_id,
@@ -384,6 +407,7 @@ async fn run_watcher(
         state: WatchState::default(),
         hotplug,
         hid_events,
+        volume_watches: JoinSet::new(),
         schedule: Schedule::new(now),
         wake_detector: WakeDetector::new(SystemTime::now(), now),
         device_io,
@@ -470,6 +494,7 @@ struct InventoryWorker {
     state: WatchState,
     hotplug: Option<openlogi_hid::backend::HotplugStream>,
     hid_events: openlogi_hid::inventory::events::EventReceiver,
+    volume_watches: JoinSet<VolumeRead>,
     schedule: Schedule,
     wake_detector: WakeDetector,
     device_io: DeviceIoGate,
@@ -477,11 +502,18 @@ struct InventoryWorker {
     rescans_open: bool,
 }
 
+struct VolumeRead {
+    address: RawDeviceAddress,
+    watch: VolumeWatch,
+    result: Result<u8, BackendError>,
+}
+
 impl InventoryWorker {
     async fn run(&mut self) {
         let mut trigger = ReconcileTrigger::Initial;
         loop {
             if !self.device_io.allows_io() {
+                self.volume_watches.shutdown().await;
                 if !self.device_io.wait_until_allowed().await {
                     return;
                 }
@@ -549,6 +581,9 @@ impl InventoryWorker {
         // start, and the cache stays fresh through `PROBE_CACHE_FRESHNESS`.
         // Repair retries use completion, or a pass longer than
         // `FAST_RETRY_DELAY` would already be due when it returns (#1774).
+        // Drain and close the old readers before getting a fresh baseline.
+        // Old queued wheel reports must not overwrite the next GET.
+        self.volume_watches.shutdown().await;
         let started = Instant::now();
         let result = self.enumerator.enumerate().await;
         self.complete_enumeration(trigger, result, started).await
@@ -564,7 +599,14 @@ impl InventoryWorker {
     ) -> bool {
         let (event, outcome, replaced) = match result {
             Ok(inventories) => {
-                let standalone = self.hardware.enumerate_standalone().await;
+                let standalone = self.hardware.enumerate_standalone().await.map(|scan| {
+                    if self.device_io.allows_io() {
+                        for (address, watch) in scan.volume_watches {
+                            self.arm_volume_watch(address, watch);
+                        }
+                    }
+                    scan.devices
+                });
                 let standalone_failed = standalone.is_err();
                 let open_failures = self.enumerator.open_failures_last_tick();
                 let event = self.state.classify_parts(
@@ -618,6 +660,42 @@ impl InventoryWorker {
         true
     }
 
+    fn arm_volume_watch(&mut self, address: RawDeviceAddress, mut watch: VolumeWatch) {
+        self.volume_watches.spawn(async move {
+            let result = watch.next_step().await;
+            VolumeRead {
+                address,
+                watch,
+                result,
+            }
+        });
+    }
+
+    fn apply_volume_read(&mut self, read: VolumeRead) {
+        if !self.device_io.allows_io() {
+            return;
+        }
+        let VolumeRead {
+            address,
+            watch,
+            result,
+        } = read;
+        match result {
+            Ok(step) => {
+                if self.state.raw_nodes.update_headset_volume(&address, step) {
+                    let _ = self.events.send(InventoryEvent::HeadsetVolumeChanged {
+                        address: address.clone(),
+                        step,
+                    });
+                }
+                self.arm_volume_watch(address, watch);
+            }
+            Err(error) => {
+                debug!(%error, "A50 volume listener ended — inventory recovery remains active");
+            }
+        }
+    }
+
     async fn next_trigger(&mut self) -> ReconcileTrigger {
         let trigger = loop {
             let (deadline, purpose) = self.schedule.next_deadline();
@@ -642,9 +720,17 @@ impl InventoryWorker {
                 () = self.enumerator.dead_channel_reported() => {
                     break ReconcileTrigger::DeadChannel;
                 }
+                reading = self.volume_watches.join_next(), if !self.volume_watches.is_empty() => {
+                    if let Some(Ok(reading)) = reading {
+                        self.apply_volume_read(reading);
+                    }
+                }
                 allowed = self.device_io.changed() => {
-                    if allowed == Some(false) && self.device_io.wait_until_allowed().await {
-                        break ReconcileTrigger::SystemResume;
+                    if allowed == Some(false) {
+                        self.volume_watches.shutdown().await;
+                        if self.device_io.wait_until_allowed().await {
+                            break ReconcileTrigger::SystemResume;
+                        }
                     }
                     if allowed == Some(true) {
                         break ReconcileTrigger::SystemResume;
@@ -831,6 +917,7 @@ mod tests {
             registry_model_id: None,
             battery: None,
             chat_mix: None,
+            headset_volume: None,
         }
     }
 

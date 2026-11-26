@@ -8,6 +8,7 @@ use openlogi_device_registry::headset::{GAMING_HEADSET_DRIVER_ID, find_gaming_he
 use openlogi_device_registry::litra::find_litra;
 
 use super::InventoryError;
+pub use crate::astro_a50::VolumeWatch;
 use crate::backend::HidBackend;
 use crate::write::litra_capabilities;
 
@@ -16,14 +17,29 @@ use crate::write::litra_capabilities;
 /// The returned descriptors are intentionally separate from receiver
 /// inventories. A raw device has no HID++ pairing slot and must be routed by
 /// its full HID identity tuple.
-/// Recognized A50 Gen 5 nodes receive independent bounded battery and ChatMix queries; a failed
-/// query leaves the identity visible with an unknown reading.
+/// A failed A50 query leaves the device visible with an unknown reading.
 pub async fn enumerate_standalone(
     backend: &dyn HidBackend,
 ) -> Result<Vec<StandaloneDevice>, InventoryError> {
+    Ok(enumerate_standalone_with_watches(backend).await?.devices)
+}
+
+/// Standalone inventory and the open channels that can report wheel changes.
+pub struct StandaloneScan {
+    /// The recognized devices and their initial readings.
+    pub devices: Vec<StandaloneDevice>,
+    /// Volume event readers indexed by the corresponding raw device address.
+    pub volume_watches: Vec<(RawDeviceAddress, VolumeWatch)>,
+}
+
+/// Enumerate standalone devices and keep successful A50 volume channels open.
+pub async fn enumerate_standalone_with_watches(
+    backend: &dyn HidBackend,
+) -> Result<StandaloneScan, InventoryError> {
     let devices = backend.enumerate().await?;
     let mut standalone: Vec<_> = devices.iter().filter_map(standalone_device).collect();
     validate_no_ambiguous_nodes(&standalone)?;
+    let mut volume_watches = Vec::new();
     for (device, node) in standalone.iter_mut().filter_map(|device| {
         devices
             .iter()
@@ -50,9 +66,19 @@ pub async fn enumerate_standalone(
                 Ok(step) => device.chat_mix = Some(step),
                 Err(error) => tracing::debug!(%error, "A50 ChatMix unavailable"),
             }
+            match crate::astro_a50::open_volume_watch(backend, node).await {
+                Ok((step, watch)) => {
+                    device.headset_volume = Some(step);
+                    volume_watches.push((device.address.clone(), watch));
+                }
+                Err(error) => tracing::debug!(%error, "A50 headset volume unavailable"),
+            }
         }
     }
-    Ok(standalone)
+    Ok(StandaloneScan {
+        devices: standalone,
+        volume_watches,
+    })
 }
 
 /// Classifies one enumerated HID node against every standalone driver family
@@ -84,6 +110,7 @@ pub(super) fn standalone_device(device: &crate::backend::NodeInfo) -> Option<Sta
             registry_model_id: Some(descriptor.registry_model_id.to_owned()),
             battery: None,
             chat_mix: None,
+            headset_volume: None,
         });
     }
 
@@ -113,6 +140,7 @@ pub(super) fn standalone_device(device: &crate::backend::NodeInfo) -> Option<Sta
             registry_model_id: descriptor.registry_model_id.map(str::to_owned),
             battery: None,
             chat_mix: None,
+            headset_volume: None,
         });
     }
 
@@ -144,6 +172,7 @@ pub(super) fn standalone_device(device: &crate::backend::NodeInfo) -> Option<Sta
             registry_model_id: None,
             battery: None,
             chat_mix: None,
+            headset_volume: None,
         });
     }
 
@@ -255,6 +284,7 @@ mod tests {
             registry_model_id: None,
             battery: None,
             chat_mix: None,
+            headset_volume: None,
         }
     }
 

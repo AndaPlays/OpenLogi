@@ -1230,6 +1230,10 @@ fn device_description_list(record: DeviceRecord, pal: Palette) -> impl IntoEleme
             format!("Voice  ·  {step}/{game_end}  ·  Game"),
         ));
     }
+    if let Some(step) = record.headset_volume.filter(|_| record.is_online()) {
+        let maximum = openlogi_core::device::A50_VOLUME_MAX;
+        rows.push((tr!("device.headset_volume"), format!("{step}/{maximum}")));
+    }
     if let Some(serial) = record.serial_number {
         rows.push((tr!("device.serial"), serial));
     }
