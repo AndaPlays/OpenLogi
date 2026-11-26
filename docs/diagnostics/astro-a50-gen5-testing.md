@@ -186,13 +186,27 @@ reader before replacing the baseline in a scan or suspending device I/O.
 The GET remains the initial and recovery reading. A failed listener is
 reopened on the next successful scan.
 
-To verify the live path on Arch, leave the GUI open on the device details
-and turn the wheel at a comfortable listening level. Look for the volume
-row to follow each step before the next inventory scan. To verify recovery,
-reconnect the base and check that the step appears again and updates when
-you turn the wheel. The spontaneous reports were confirmed with a direct
-passive probe. The live agent path is covered by offline replay and still
-needs this hardware test.
+### Live volume hardware test on Arch Linux
+
+On 2026-11-26 the SHA-256-verified Linux x86_64 build from
+`bfd540359844072e827cc6fd64599ff631da2539` (IPC 49) was tested with a
+physical ASTRO A50 Gen 5 (`046d:0b1c`). The open device details showed
+`14 → 13 → 12 → 13 → 14 → 15` as the wheel moved. Changes appeared in
+the next screen captures. Exact GUI latency was unmeasured.
+
+The CLI first showed the new values 9–202 ms after their corresponding
+HID reports. Both clients ended at volume `15/21`, battery 82% and
+ChatMix `6/12`.
+
+The PipeWire A50 Game sink stayed at 100% (0.00 dB) on both channels.
+The ALSA Game output was active in all 299 samples over roughly 60 seconds,
+and the hardware playback pointer continued to advance. The temporary test
+processes were stopped afterward, and the normal OpenLogi service returned
+to its previous inactive state.
+
+The tested archive's SHA-256 was
+`80181ee0147b2628998b9c7f4e23836477f3cacc7ab6de610ede7488f2441794`.
+Recovery after reconnecting the base remains to be verified on hardware.
 
 ## Offline evidence
 
