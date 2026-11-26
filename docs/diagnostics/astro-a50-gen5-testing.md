@@ -206,7 +206,51 @@ to its previous inactive state.
 
 The tested archive's SHA-256 was
 `80181ee0147b2628998b9c7f4e23836477f3cacc7ab6de610ede7488f2441794`.
-Recovery after reconnecting the base remains to be verified on hardware.
+
+### USB reconnect on Arch Linux
+
+The same build recovered after the cable was unplugged and reinserted at
+the PC port. The agent and GUI stayed running. From the udev USB add event,
+HID was first observed readable after 16.2 ms. The first complete
+agent-backed CLI snapshot appeared after 2.42 s with battery 76%, ChatMix
+`6/12` and volume `13/21`. The device tile was visible by 3.57 s.
+
+The agent-backed CLI subsequently showed `13 → 12 → 11 → 12 → 13` as
+the wheel moved. The sampled GUI frames showed `13 → 12 → 13` and
+agreed with the CLI on the final step. The test processes were stopped, the
+normal service returned to its previous inactive state, and the base was
+left on PC.
+
+### Bluetooth connection reports on Arch Linux
+
+With the headset on and undocked and the PC input selected, interface 8
+remained reachable through a phone disconnect, connect and disconnect.
+The connection byte at offset 6 read `00 → 01 → 00`. The Bluetooth LED
+was lit with the phone connected and off after the second disconnect.
+Both transitions also produced spontaneous reports in a separate passive
+capture. The complete frames consist of these prefixes and zero padding
+to 64 bytes.
+
+| Report | Prefix (hex) |
+| --- | --- |
+| GET request | `02 0c 03 00 0e 0d` |
+| GET reply, disconnected | `02 0c 04 00 0e 0d 00` |
+| GET reply, connected | `02 0c 04 00 0e 0d 01` |
+| Spontaneous connect | `02 0c 04 00 0e 00 01` |
+| Spontaneous disconnect | `02 0c 04 00 0e 00 00` |
+
+Two other reports were recorded by header only (`02 0c 07 00 0c 00`).
+Their meaning is unknown. The confirmed Bluetooth reports describe link
+state and contain no peer name or address.
+
+### PLAYSYNC on Arch Linux
+
+With Bluetooth disconnected and only the PC port cabled, the base
+indicated `PC → XBOX → PS → PC`. Arch saw USB and HID removal on the
+first transition, no device while Xbox or PlayStation was selected, and
+enumeration as `046d:0b1c` on return to PC. No spontaneous PLAYSYNC
+report was captured at the PC port. PC-side USB removal alone does not
+identify which of the console inputs was selected.
 
 ## Offline evidence
 
