@@ -228,6 +228,7 @@ pub(super) fn online_record(key: &str) -> DeviceRecord {
         slot: 1,
         presence: Presence::Listed(Link::Online),
         battery: None,
+        chat_mix: None,
         settings_revision: 0,
         stale_pairings: Vec::new(),
     }
@@ -402,6 +403,7 @@ fn standalone_registry_identity_is_preserved_without_hidpp_model_info() {
         driver_id: "litra".into(),
         registry_model_id: Some("8c901".into()),
         battery: None,
+        chat_mix: None,
     };
     let list = build_device_list(
         &[],
@@ -446,6 +448,7 @@ fn standalone_headset_battery_reaches_the_existing_device_record() {
             level: openlogi_core::device::BatteryLevel::Unknown,
             status: openlogi_core::device::BatteryStatus::Unknown,
         }),
+        chat_mix: Some(6),
     };
     let list = build_device_list(
         &[],
@@ -456,6 +459,7 @@ fn standalone_headset_battery_reaches_the_existing_device_record() {
     );
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].battery, device.battery);
+    assert_eq!(list[0].chat_mix, Some(6));
     assert_eq!(list[0].kind, DeviceKind::Headset);
     assert!(list[0].capabilities.is_none());
 }

@@ -381,6 +381,7 @@ fn a_light_row_reports_what_the_light_read_back() {
         driver_id: "litra".to_owned(),
         registry_model_id: None,
         battery: None,
+        chat_mix: None,
     };
     let brightness = LightValueRange::new(20, 250, 1, LightValueUnit::Lumens).expect("range");
     let state = |on| LightState {
@@ -1136,6 +1137,7 @@ mod controls {
             driver_id: "litra".to_owned(),
             registry_model_id: None,
             battery: None,
+            chat_mix: None,
         }
     }
 

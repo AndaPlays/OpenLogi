@@ -16,7 +16,7 @@ use crate::write::litra_capabilities;
 /// The returned descriptors are intentionally separate from receiver
 /// inventories. A raw device has no HID++ pairing slot and must be routed by
 /// its full HID identity tuple.
-/// Recognized A50 Gen 5 nodes receive one bounded battery query; a failed
+/// Recognized A50 Gen 5 nodes receive independent bounded battery and ChatMix queries; a failed
 /// query leaves the identity visible with an unknown reading.
 pub async fn enumerate_standalone(
     backend: &dyn HidBackend,
@@ -45,6 +45,10 @@ pub async fn enumerate_standalone(
             match crate::astro_a50::query_battery(backend, node).await {
                 Ok(battery) => device.battery = Some(battery),
                 Err(error) => tracing::debug!(%error, "A50 battery unavailable"),
+            }
+            match crate::astro_a50::query_chat_mix(backend, node).await {
+                Ok(step) => device.chat_mix = Some(step),
+                Err(error) => tracing::debug!(%error, "A50 ChatMix unavailable"),
             }
         }
     }
@@ -79,6 +83,7 @@ pub(super) fn standalone_device(device: &crate::backend::NodeInfo) -> Option<Sta
             driver_id: descriptor.driver_id.to_owned(),
             registry_model_id: Some(descriptor.registry_model_id.to_owned()),
             battery: None,
+            chat_mix: None,
         });
     }
 
@@ -107,6 +112,7 @@ pub(super) fn standalone_device(device: &crate::backend::NodeInfo) -> Option<Sta
             driver_id: GAMING_HEADSET_DRIVER_ID.to_owned(),
             registry_model_id: descriptor.registry_model_id.map(str::to_owned),
             battery: None,
+            chat_mix: None,
         });
     }
 
@@ -137,6 +143,7 @@ pub(super) fn standalone_device(device: &crate::backend::NodeInfo) -> Option<Sta
             driver_id: G600_DRIVER_ID.to_owned(),
             registry_model_id: None,
             battery: None,
+            chat_mix: None,
         });
     }
 
@@ -247,6 +254,7 @@ mod tests {
             driver_id: "litra".into(),
             registry_model_id: None,
             battery: None,
+            chat_mix: None,
         }
     }
 

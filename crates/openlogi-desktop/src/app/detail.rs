@@ -1223,6 +1223,13 @@ fn device_description_list(record: DeviceRecord, pal: Palette) -> impl IntoEleme
         (tr!("device.connection"), connection),
         (tr!("device.device_key"), elided_key(&record.config_key)),
     ];
+    if let Some(step) = record.chat_mix.filter(|_| record.is_online()) {
+        let game_end = openlogi_core::device::CHAT_MIX_GAME_END;
+        rows.push((
+            "ChatMix".into(),
+            format!("Voice  ·  {step}/{game_end}  ·  Game"),
+        ));
+    }
     if let Some(serial) = record.serial_number {
         rows.push((tr!("device.serial"), serial));
     }

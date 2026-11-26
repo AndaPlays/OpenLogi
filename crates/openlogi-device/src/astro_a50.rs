@@ -1,11 +1,11 @@
-//! Battery queries and decoding of ASTRO A50 Gen 5 vendor reports, not HID++ or A50 X.
+//! ASTRO A50 Gen 5 vendor reports, separate from HID++ and A50 X.
 //!
 //! The measured exchange and its provenance live in
 //! `docs/diagnostics/astro-a50-gen5-battery.{md,json}`. The query uses the injected backend; this module never opens host devices directly.
 
 use std::time::Duration;
 
-use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus};
+use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, CHAT_MIX_GAME_END};
 
 use crate::backend::{BackendError, HidBackend, NodeInfo};
 
@@ -17,6 +17,25 @@ pub async fn query_battery(
     backend: &dyn HidBackend,
     node: &NodeInfo,
 ) -> Result<BatteryInfo, BackendError> {
+    let battery = query(backend, node, 0x06, decode_battery_report).await?;
+    Ok(BatteryInfo {
+        percentage: Some(battery.percent()),
+        level: BatteryLevel::Unknown,
+        status: BatteryStatus::Unknown,
+    })
+}
+
+/// Query the headset's hardware Game/Voice balance without changing it.
+pub async fn query_chat_mix(backend: &dyn HidBackend, node: &NodeInfo) -> Result<u8, BackendError> {
+    query(backend, node, 0x0a, decode_chat_mix_report).await
+}
+
+async fn query<T, E>(
+    backend: &dyn HidBackend,
+    node: &NodeInfo,
+    command: u8,
+    decode: impl Fn(&[u8]) -> Result<T, E>,
+) -> Result<T, BackendError> {
     if !openlogi_device_registry::headset::matches_astro_a50_gen5(
         node.vendor_id,
         node.product_id,
@@ -30,7 +49,7 @@ pub async fn query_battery(
     tokio::time::timeout(Duration::from_secs(2), async {
         let mut channel = backend.open_raw_channel(node).await?;
         let mut request = [0; 64];
-        request[..6].copy_from_slice(&[0x02, 0x0c, 0x03, 0, 0x06, 0x0c]);
+        request[..6].copy_from_slice(&[0x02, 0x0c, 0x03, 0, command, 0x0c]);
         channel.write_output_report(&request).await?;
         loop {
             let mut report = [0; 65];
@@ -38,19 +57,15 @@ pub async fn query_battery(
             let Some(bytes) = report.get(..length) else {
                 return Err(BackendError::Backend("invalid raw HID report size".into()));
             };
-            if let Ok(battery) = decode_battery_report(bytes) {
-                return Ok(BatteryInfo {
-                    percentage: Some(battery.percent()),
-                    level: BatteryLevel::Unknown,
-                    status: BatteryStatus::Unknown,
-                });
+            if let Ok(reading) = decode(bytes) {
+                return Ok(reading);
             }
             // Also bounds a backend that continuously returns unrelated reports.
             tokio::task::yield_now().await;
         }
     })
     .await
-    .map_err(|_| BackendError::Backend("A50 Gen 5 battery query timed out".into()))?
+    .map_err(|_| BackendError::Backend("A50 Gen 5 query timed out".into()))?
 }
 
 /// A validated battery reply from the A50 Gen 5 vendor interface.
@@ -59,14 +74,14 @@ pub struct BatteryReport {
     percent: u8,
     /// Transaction token as received; replies need not echo the request token.
     pub handle: u8,
-    /// Byte adjacent to the percentage, whose meaning is not yet established.
-    pub unknown_level: u8,
-    /// Raw dock/charging field. Its semantics need further hardware validation.
-    pub dock_charging_raw: u8,
+    /// Raw byte 7. It matched G HUB’s percentage in the measured powered-on states.
+    pub secondary_level_raw: u8,
+    /// Raw byte 8. Observed values include 0x00, 0x01 and 0x03.
+    pub status_raw: u8,
 }
 
 impl BatteryReport {
-    /// Battery percentage in the inclusive range 0–100.
+    /// Battery percentage from byte 6 in the inclusive range 0–100.
     #[must_use]
     pub const fn percent(self) -> u8 {
         self.percent
@@ -92,8 +107,8 @@ pub enum BatteryReportError {
 
 /// Decode one complete 64-byte battery input report, including report ID.
 ///
-/// Accepts any transaction handle and preserves the two fields whose semantics
-/// have not been established on this unit. Transport padding is ignored.
+/// Accepts any transaction handle and preserves the secondary level and status
+/// bytes verbatim. Transport padding is ignored.
 /// Unrelated commands, bare acknowledgements and unknown payload layouts are
 /// rejected rather than interpreted as battery values.
 pub fn decode_battery_report(report: &[u8]) -> Result<BatteryReport, BatteryReportError> {
@@ -113,14 +128,83 @@ pub fn decode_battery_report(report: &[u8]) -> Result<BatteryReport, BatteryRepo
     Ok(BatteryReport {
         percent: report[6],
         handle: report[5],
-        unknown_level: report[7],
-        dock_charging_raw: report[8],
+        secondary_level_raw: report[7],
+        status_raw: report[8],
     })
+}
+
+/// Why a report cannot be accepted as an A50 Gen 5 ChatMix reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ChatMixReportError {
+    /// Invalid report size, header or declared payload length.
+    #[error("not a complete A50 Gen 5 ChatMix reply")]
+    Frame,
+    /// The reported step exceeds the Game endpoint.
+    #[error("invalid A50 Gen 5 ChatMix step {0}")]
+    Step(u8),
+}
+
+/// Decode the ChatMix step from a complete A50 Gen 5 input report.
+///
+/// The measured landmarks are 0 (Voice), 6 (center) and 12 (Game).
+/// Intermediate steps are returned as raw positions, without inferring gain.
+pub fn decode_chat_mix_report(report: &[u8]) -> Result<u8, ChatMixReportError> {
+    if report.len() != 64 {
+        return Err(ChatMixReportError::Frame);
+    }
+    match report {
+        [
+            0x02,
+            0x0c,
+            0x04,
+            0x00,
+            0x0a,
+            _,
+            step @ 0..=CHAT_MIX_GAME_END,
+            ..,
+        ] => Ok(*step),
+        [0x02, 0x0c, 0x04, 0x00, 0x0a, _, step, ..] => Err(ChatMixReportError::Step(*step)),
+        _ => Err(ChatMixReportError::Frame),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BatteryReportError, decode_battery_report};
+    use super::{
+        BatteryReportError, ChatMixReportError, decode_battery_report, decode_chat_mix_report,
+    };
+
+    #[test]
+    fn decodes_measured_arch_chat_mix_positions() {
+        for (payload, step) in [(0x00, 0), (0x06, 6), (0x0c, 12)] {
+            let mut report = [0; 64];
+            report[..7].copy_from_slice(&[0x02, 0x0c, 0x04, 0x00, 0x0a, 0x0c, payload]);
+            assert_eq!(decode_chat_mix_report(&report), Ok(step));
+        }
+    }
+
+    #[test]
+    fn rejects_chat_mix_outside_range_and_unrelated_frames() {
+        let mut report = [0; 64];
+        report[..7].copy_from_slice(&[0x02, 0x0c, 0x04, 0x00, 0x0a, 0x0c, 0x0d]);
+        assert_eq!(
+            decode_chat_mix_report(&report),
+            Err(ChatMixReportError::Step(13))
+        );
+        assert_eq!(
+            decode_chat_mix_report(&report[..63]),
+            Err(ChatMixReportError::Frame)
+        );
+        report[2] = 3;
+        assert_eq!(
+            decode_chat_mix_report(&report),
+            Err(ChatMixReportError::Frame)
+        );
+        assert_eq!(
+            decode_chat_mix_report(&measured_report()),
+            Err(ChatMixReportError::Frame)
+        );
+    }
 
     fn measured_report() -> Vec<u8> {
         let capture: serde_json::Value = serde_json::from_str(include_str!(
@@ -139,12 +223,25 @@ mod tests {
     }
 
     #[test]
+    fn windows_replies_preserve_both_levels_and_each_status() {
+        // The Windows capture used the same levels in all three states.
+        for status in [0x00, 0x01, 0x03] {
+            let mut report = [0; 64];
+            report[..9].copy_from_slice(&[0x02, 0x0c, 0x06, 0x00, 0x06, 0x0c, 0x5c, 0x5f, status]);
+            let battery = decode_battery_report(&report).expect("measured Windows reply");
+            assert_eq!(battery.percent(), 92);
+            assert_eq!(battery.secondary_level_raw, 95);
+            assert_eq!(battery.status_raw, status);
+        }
+    }
+
+    #[test]
     fn measured_reply_is_93_percent_with_uninterpreted_fields() {
         let battery = decode_battery_report(&measured_report()).expect("measured battery reply");
         assert_eq!(battery.percent(), 93);
         assert_eq!(battery.handle, 0x0c);
-        assert_eq!(battery.unknown_level, 0x5f);
-        assert_eq!(battery.dock_charging_raw, 0);
+        assert_eq!(battery.secondary_level_raw, 0x5f);
+        assert_eq!(battery.status_raw, 0);
     }
 
     #[test]
@@ -199,8 +296,8 @@ mod tests {
             let battery = decode_battery_report(&report).expect("valid boundary percentage");
             assert_eq!(battery.percent(), percent);
             assert_eq!(battery.handle, 0);
-            assert_eq!(battery.unknown_level, 255);
-            assert_eq!(battery.dock_charging_raw, 0x80);
+            assert_eq!(battery.secondary_level_raw, 255);
+            assert_eq!(battery.status_raw, 0x80);
         }
         for percent in [101, 255] {
             report[6] = percent;

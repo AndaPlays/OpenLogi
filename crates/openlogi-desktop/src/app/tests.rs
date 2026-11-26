@@ -1149,6 +1149,7 @@ fn record(kind: DeviceKind, capabilities: Option<Capabilities>) -> DeviceRecord 
         slot: 1,
         presence: Presence::Listed(Link::Online),
         battery: None,
+        chat_mix: None,
         settings_revision: 0,
         stale_pairings: Vec::new(),
     }

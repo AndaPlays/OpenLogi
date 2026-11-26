@@ -61,6 +61,15 @@ ff 00 95 3f 09 75 81 02 75 08 15 00 26 ff 00 95
 
 ## Audio snapshot
 
+See Logitech's [ASTRO A50 wireless headset quick-start guide (PDF)] for the
+manufacturer's setup reference and the [engineering notes from the guide](astro-a50-gen5-guide.md)
+for the controls, pairing and LED patterns. In the product specifications supplied by the
+owner, Logitech lists LIGHTSPEED at 24-bit/48 kHz, PC USB audio as one stream
+up to 24-bit/48 kHz, and console USB audio as two streams up to 16-bit/48 kHz
+each. The PC specification gives the maximum format. The measurements below
+show the formats of the individual USB playback interfaces in the tested PC
+mode. Logitech also lists Dolby Atmos and Windows Sonic compatibility.
+
 Kernel `7.3.5-arch1-1`, PipeWire and its PulseAudio compatibility server
 `1.6.11`, WirePlumber `0.5.19`. ALSA registered the `A50` USB-Audio card
 with PCM devices 0 and 1. PipeWire exposed `alsa_card.usb-Logitech_A50-00`
@@ -113,6 +122,41 @@ device identifiers before committing them. Build report replay or a dummy
 after real exchanges and independent expectations are available. Keep
 Dolby as a separate study.
 
+## ChatMix test on Arch Linux
+
+1. Play quiet music to **A50 Game** (`pro-output-1`) and a spoken recording
+   to **A50 Voice** (`pro-output-0`). Route each playback stream explicitly
+   in the desktop mixer, then verify both are audible at the same time.
+   Use the PC USB connection for both streams and keep Bluetooth audio quiet.
+2. Note the initial balance. Press one side of the headset's Game/Voice
+   control and check which stream gets quieter. Use that observation to
+   identify the direction. Test the Voice end, center, and Game end while
+   leaving the app volumes and system audio routing fixed.
+3. At each position, record the audible Game and Voice levels and the raw
+   ChatMix reply from the existing probe. The Windows center reading was
+   `0x06`. The reference driver maps `0x00` to the Voice end and `0x0c`
+   to the Game end. Treat the endpoint values as expectations for the Arch
+   test and save the actual replies, including any differences.
+4. Restore the initial balance and stop the two test streams.
+
+### Measured ChatMix positions
+
+The physical A50 Gen 5 on Arch played Spotify through A50 Voice and Vivaldi
+through A50 Game. Each captured HID reply is the seven-byte prefix below
+followed by 57 zero bytes.
+
+| Physical position | HID step | Audible output | Reply prefix |
+| --- | --- | --- | --- |
+| Voice end | 0 | Spotify only | `02 0c 04 00 0a 0c 00` |
+| Center | 6 | Spotify and Vivaldi | `02 0c 04 00 0a 0c 06` |
+| Game end | 12 | Vivaldi only | `02 0c 04 00 0a 0c 0c` |
+
+PipeWire still reported both streams active on their original sinks at
+the Game end, even though only Vivaldi was audible. This supports treating
+ChatMix as a hardware balance control rather than as Linux stream routing
+or mute state. Intermediate positions and their gain curve are unmeasured.
+
+[ASTRO A50 wireless headset quick-start guide (PDF)]: https://www.logitech.com/assets/70203/2/a50_wireless_headset_web_qsg_amr.pdf
 [HeadsetControl's A50 driver]: https://github.com/Sapd/HeadsetControl/blob/6b3f7788c9561a467cad7a90576ccec15e10f6bf/lib/devices/logitech_astro_a50.hpp
 [Logitech's model comparison]: https://www.logitechg.com/en-us/discover/learn/console-gaming-gift-guide
 [HID++ long collection filter]: ../../crates/openlogi-hid/src/transport.rs

@@ -262,6 +262,10 @@ impl fmt::Display for StandaloneDisplay<'_> {
         if let Some(battery) = &device.battery {
             write!(f, " {}", BatteryDisplay(battery))?;
         }
+        if let Some(step) = device.chat_mix.filter(|_| device.online) {
+            let game_end = openlogi_core::device::CHAT_MIX_GAME_END;
+            write!(f, " chatmix={step}/{game_end} (Voice → Game)")?;
+        }
         Ok(())
     }
 }
@@ -477,6 +481,7 @@ mod format_tests {
             driver_id: "logitech-g600".into(),
             registry_model_id: None,
             battery: None,
+            chat_mix: None,
         };
 
         assert_eq!(
@@ -636,10 +641,11 @@ mod format_tests {
                 level: BatteryLevel::Unknown,
                 status: BatteryStatus::Unknown,
             }),
+            chat_mix: Some(6),
         };
         assert_eq!(
             super::StandaloneDisplay(&device).to_string(),
-            "● ASTRO A50 Gen 5 (headset, vid=046d pid=0b1c, driver=logitech-gaming-headset) battery=93% unknown (unknown)"
+            "● ASTRO A50 Gen 5 (headset, vid=046d pid=0b1c, driver=logitech-gaming-headset) battery=93% unknown (unknown) chatmix=6/12 (Voice → Game)"
         );
     }
 

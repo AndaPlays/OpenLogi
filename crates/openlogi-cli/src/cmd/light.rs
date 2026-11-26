@@ -286,6 +286,7 @@ mod tests {
             driver_id: "litra".into(),
             registry_model_id: None,
             battery: None,
+            chat_mix: None,
         }
     }
 

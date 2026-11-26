@@ -43,6 +43,7 @@ impl RawChannel for Channel {
 struct Backend {
     nodes: Vec<NodeInfo>,
     channel: Mutex<Option<Channel>>,
+    chat_mix_channel: Mutex<Option<Channel>>,
 }
 
 #[async_trait]
@@ -60,13 +61,14 @@ impl HidBackend for Backend {
         panic!("A50 needs a duplex connection")
     }
     async fn open_raw_channel(&self, _: &NodeInfo) -> Result<Box<dyn RawChannel>, BackendError> {
-        Ok(Box::new(
-            self.channel
-                .lock()
-                .unwrap()
-                .take()
-                .expect("one open per query"),
-        ))
+        let channel = self
+            .channel
+            .lock()
+            .unwrap()
+            .take()
+            .or_else(|| self.chat_mix_channel.lock().unwrap().take())
+            .ok_or(BackendError::Disconnected)?;
+        Ok(Box::new(channel))
     }
     fn watch(&self) -> Result<HotplugStream, BackendError> {
         Ok(Box::new(futures_lite::stream::empty()))
@@ -110,6 +112,7 @@ fn backend(reports: Vec<Vec<u8>>) -> (Backend, Writes) {
     (
         Backend {
             nodes: vec![node()],
+            chat_mix_channel: Mutex::new(None),
             channel: Mutex::new(Some(Channel {
                 reports: reports.into(),
                 writes: writes.clone(),
@@ -134,6 +137,7 @@ async fn measured_exchange_populates_discovery_without_inventing_charge_status()
     assert_eq!(devices.len(), 1);
     assert_eq!(devices[0].display_name, "ASTRO A50 Gen 5");
     assert_eq!(devices[0].kind, openlogi_core::device::DeviceKind::Headset);
+    assert_eq!(devices[0].chat_mix, None);
     let battery = devices[0].battery.as_ref().unwrap();
     assert_eq!(battery.percentage, Some(93));
     assert_eq!(
@@ -144,6 +148,29 @@ async fn measured_exchange_populates_discovery_without_inventing_charge_status()
     assert_eq!(
         *writes.lock().unwrap(),
         vec![capture_report("output_report")]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn chat_mix_is_reported_when_battery_times_out() {
+    let (backend, writes) = backend(Vec::new());
+    let mut report = vec![0; 64];
+    report[..7].copy_from_slice(&[0x02, 0x0c, 0x04, 0, 0x0a, 0x0c, 6]);
+    let _ = backend.chat_mix_channel.lock().unwrap().replace(Channel {
+        reports: [report].into(),
+        writes: writes.clone(),
+        fail_write: false,
+    });
+    let devices = crate::inventory::standalone::enumerate_standalone(&backend)
+        .await
+        .unwrap();
+    assert!(devices[0].battery.is_none());
+    assert_eq!(devices[0].chat_mix, Some(6));
+    let mut request = vec![0; 64];
+    request[..6].copy_from_slice(&[0x02, 0x0c, 0x03, 0, 0x0a, 0x0c]);
+    assert_eq!(
+        *writes.lock().unwrap(),
+        vec![capture_report("output_report"), request]
     );
 }
 

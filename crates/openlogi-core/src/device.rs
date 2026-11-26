@@ -756,7 +756,13 @@ pub struct StandaloneDevice {
     /// Appended to the IPC wire format; unknown readings are never zero percent.
     #[serde(default)]
     pub battery: Option<BatteryInfo>,
+    /// Hardware Game/Voice balance, with zero at the Voice end.
+    #[serde(default)]
+    pub chat_mix: Option<u8>,
 }
+
+/// ChatMix step at the Game endpoint. The Voice endpoint is zero.
+pub const CHAT_MIX_GAME_END: u8 = 12;
 
 impl StandaloneDevice {
     /// The route that reaches this device.
